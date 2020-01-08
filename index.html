@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+    body {
+        width: 940px;
+        margin: 0 auto;
+        margin-top: 2em;
+    }
+    svg {
+        font: 10px sans-serif;
+    }
+
+    .axis path,
+    .axis line {
+        fill: none;
+        stroke: black;
+        shape-rendering: crispEdges;
+    }
+
+    .tooltip rect {
+        width: 220px;
+        height: 50px;
+        fill: lightsteelblue;
+        rx: 8px;
+        pointer-events: none;
+    }
+    .tooltip text {
+        text-align: center;
+        font: 12px sans-serif;
+        pointer-events: none;
+    }
+</style>
+<body>
+
+<!--<div class="tooltip">hello</div>-->
+<script src="http://d3js.org/d3.v4.min.js"></script>
+<script src="http://d3js.org/queue.v1.min.js"></script>
+<script src="http://d3js.org/topojson.v1.min.js"></script>
+<script>
+    /**
+     * Citations:
+     * http://bl.ocks.org/micahstubbs/281d7b7a7e39a9b59cf80f1b8bd41a72
+     * http://bl.ocks.org/msbarry/9911363
+     * http://bl.ocks.org/weiglemc/6185069
+     *
+    **/
+
+	const margin = {top: 0, right: 0, bottom: 0, left: 0};
+	const width = 960 - margin.left - margin.right;
+	const height = 1000 - margin.top - margin.bottom;
+
+	const color = d3.scaleThreshold()
+			.domain([0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ])
+			.range(['rgb(247,251,255)', 'rgb(222,235,247)', 'rgb(198,219,239)', 'rgb(158,202,225)', 'rgb(107,174,214)', 
+                'rgb(66,146,198)', 'rgb(33,113,181)', 'rgb(8,81,156)', 'rgb(8,48,107)', 'rgb(3,19,43)']);
+
+	const svg = d3.select('body')
+			.append('svg')
+			.attr('width', width)
+			.attr('height', height);
+
+    const map = svg
+        .append('g')
+        .attr('class', 'map');
+
+    const scatterplot = svg
+        .append('g')
+        .attr('class', 'scatterplot')
+        .attr("transform", "translate(100,500)");
+
+    const projection = d3.geoMercator()
+			.scale(130)
+			.translate( [width / 2, height / 1.5/2]);
+
+	const path = d3.geoPath().projection(projection);
+
+	queue()
+			.defer(d3.json, 'https://raw.githubusercontent.com/hatchersarah/Data/master/world_countries.json')
+            .defer(d3.tsv, 'https://raw.githubusercontent.com/hatchersarah/Data/master/world_population.tsv')
+            .defer(d3.csv, 'https://raw.githubusercontent.com/hatchersarah/Data/master/who.csv')
+			.await(ready);
+
+	function ready(error, data, population, who) {
+		const fertilityById = {};
+
+        population.forEach(d =>
+        {
+            var res = who.find(e =>
+            {
+                return e.Country == d.name;
+            });
+            if(typeof res !== 'undefined') {
+                res.id = d.id;
+            }
+        });
+
+        var tooltip2grp = map.append("g")
+            .attr("class", "tooltip");
+        var divrect1 = tooltip2grp.append("rect")
+            .style("display", "none");
+        var divtext = tooltip2grp.append("text")
+            .style("display", "none");
+
+        who.forEach(d => { fertilityById[d.id] = +d['Total fertility rate (per woman)']; });
+        data.features.forEach(d => { d.population = fertilityById[d.id] });
+        const maleLifeExpectancyById = {};
+        const femaleLifeExpectancyById = {};
+        who.forEach(d => {maleLifeExpectancyById[d.id] = +d["Life expectancy at birth (years) male"];});
+        who.forEach(d => {femaleLifeExpectancyById[d.id] = +d["Life expectancy at birth (years) female"];});
+
+        map.append('g')
+            .attr('class', 'countries')
+            .selectAll('path')
+            .data(data.features)
+            .enter().append('path')
+            .attr("class", d => { return "COUNTRY-CODE-"+d.id;} )
+            .attr('d', path)
+            .style('fill', d => color(fertilityById[d.id]))
+            .style('stroke', 'white')
+            .style('opacity', 0.8)
+            .style('stroke-width', 0.3)
+            .on("mouseover", function(d) {
+                console.log("happening map");
+                divtext.style("display", "inline");
+                var xPos = d3.mouse(this)[0] - 0;
+                var yPos = d3.mouse(this)[1] - 30;
+                divtext.attr("transform", `translate(${xPos},${yPos})`);
+                divtext.html(
+                    `<tspan x="10" dy="14">Country name: ${d.properties.name}</tspan>
+                     <tspan x="10" dy="14">Male life expectancy (Years): ${maleLifeExpectancyById[d.id]}</tspan>
+                     <tspan x="10" dy="14">Female life expectancy (Years): ${femaleLifeExpectancyById[d.id]}</tspan>`
+                );
+                divrect1.attr("x", xPos)
+                    .attr("y", yPos)
+                    .style("display", "inline");
+            })
+            .on("mouseout", function(d) {
+                console.log("not happening map");
+                divtext.style("display", "none");
+                divrect1.style("display", "none");
+            })
+            .on('click', function (element) {
+                const countries = d3.select(this);
+                const scatter = scatterplot.select(".COUNTRY-" + element.properties.name);
+                console.log("filling");
+                if (countries._groups[0][0].style.fill !== "red") {
+                    countries.style("fill", "red");
+                    console.log(scatter);
+                    if (scatter) {
+                        scatter.style("fill", "red");
+                    } else {
+                        console.log("some error");
+                    }
+                } else {
+                    countries.style("fill", d => color(fertilityById[d.id]));
+                    scatter.style("fill", d => color(fertilityById[d.id]));
+                }
+            });
+
+        tooltip2grp.raise();
+
+
+		svg.append('path')
+            .datum(topojson.mesh(data.features, (a, b) => a.id !== b.id))
+            .attr('class', 'names')
+            .attr('d', path);
+
+        // setup x
+        var xValue = function(d) { return d["Life expectancy at birth (years) female"];}, // data -> value
+            xScale = d3.scaleLinear().range([0, height/2-100]), // value -> display
+            xMap = function(d) { return xScale(xValue(d));}, // data -> display
+            xAxis = d3.axisBottom().scale(xScale);
+
+        // setup y
+        var yValue = function(d) { return d["Life expectancy at birth (years) male"];}, // data -> value
+            yScale = d3.scaleLinear().range([height/2-100, 0]), // value -> display
+            yMap = function(d) { return yScale(yValue(d));}, // data -> display
+            yAxis = d3.axisLeft().scale(yScale);
+
+        // don't want dots overlapping axis, so add in buffer to data domain
+        xScale.domain([35, 90]);
+        yScale.domain([35, 90]);
+
+        // x-axis
+        scatterplot.append("g")
+            .attr("class", "x axis")
+            .attr("transform", "translate(0," + (height/2-100) + ")")
+            .call(xAxis)
+            .append("text")
+            .attr("class", "label")
+            .attr("x", width)
+            .attr("y", -6)
+            .style("text-anchor", "end")
+            .text("Calories");
+
+        // y-axis
+        scatterplot.append("g")
+            .attr("class", "y axis")
+            .call(yAxis)
+            .append("text")
+            .attr("class", "label")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 6)
+            .attr("dy", ".71em")
+            .style("text-anchor", "end")
+            .text("Protein (g)");
+
+        var tooltip1grp = scatterplot.append("g")
+            .attr("class", "tooltip");
+        var divrect = tooltip1grp.append("rect")
+            .style("display", "none");
+        div = tooltip1grp.append("text")
+            .style("display", "none");
+
+        // draw dots
+        scatterplot.selectAll(".dot")
+            .data(who)
+            .enter().append("circle")
+            .attr("class", d => { return "dot COUNTRY-"+d.Country; } )
+            .attr("r", 3.5)
+            .attr("cx", xMap)
+            .attr("cy", yMap)
+            .style("fill", function(d) { return color(fertilityById[d.id]);})
+            .on("mouseover", function(d) {
+                console.log("happening");
+                div.style("display", "inline");
+                var xPos = d3.mouse(this)[0] - 0;
+                var yPos = d3.mouse(this)[1] - 30;
+
+                div.attr("transform", `translate(${xPos},${yPos})`);
+                div.html(
+                    `<tspan x="10" dy=14>Country name: ${d.Country}</tspan>
+                    <tspan x="10" dy="14">Male life expectancy (Years): ${d["Life expectancy at birth (years) male"]}</tspan>
+                    <tspan x="10" dy="14">Female life expectancy (Years): ${d["Life expectancy at birth (years) female"]}</tspan>`
+                );
+                divrect.attr("x", xPos)
+                    .attr("y", yPos)
+                    .style("display", "inline");
+            })
+            .on("mouseout", function(d) {
+                console.log("not happening");
+                div.style("display", "none");
+                divrect.style("display", "none");
+            })
+            .on('click', function (element) {
+                console.log(element);
+                const country = data.features.filter(e => e.properties.name === element.Country);
+                console.log(country);
+                console.log(data);
+
+                const scatter = d3.select(this);
+
+            if (scatter._groups[0][0].style.fill !== "red") {
+                scatter.style("fill", "red");
+                if (country.length > 0) {
+                    const countryId = country[0].id;
+                    const countries = map.select(".COUNTRY-CODE-" + countryId);
+                    console.log("filling");
+                    countries.style("fill", "red");
+                } else {
+                    console.log("error");
+                }
+            } else {
+                console.log("deselect");
+                if (country.length > 0) {
+                    const countryId = country[0].id;
+                    const countries = map.select(".COUNTRY-CODE-" + countryId);
+                    countries.style("fill", d => color(fertilityById[d.id]));
+                }
+                scatter.style("fill", d => color(fertilityById[d.id]));
+            }
+        });
+
+        tooltip1grp.raise();
+
+
+        // draw legend
+        var legend = scatterplot.selectAll(".legend")
+            .data(color.domain())
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function(d, i) { return "translate(-300," + i * 20 + ")"; });
+
+        // draw legend colored rectangles
+        legend.append("rect")
+            .attr("x", width - 18)
+            .attr("width", 18)
+            .attr("height", 18)
+            .style("fill", color);
+
+        // draw legend text
+        legend.append("text")
+            .attr("x", width - 24)
+            .attr("y", 9)
+            .attr("dy", ".35em")
+            .style("text-anchor", "end")
+            .text(function(d) { return d;})
+    };
+</script>
+</body>
+</html>
